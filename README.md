@@ -27,7 +27,7 @@ la configuration se fait dans l’interface Home Assistant, sans YAML.
 
 1. Dans HACS, ouvrir **Intégrations** puis le menu ⋮.
 2. Choisir **Dépôts personnalisés**.
-3. Ajouter `https://github.com/adlefau1/ha_shutters` avec la catégorie
+3. Ajouter `https://github.com/adrienlfr/ha_shutters` avec la catégorie
    **Intégration**.
 4. Rechercher **Solar Shutters**, télécharger l’intégration puis redémarrer
    Home Assistant.
@@ -76,8 +76,8 @@ télétravail est actif et que l’heure courante se trouve dans sa plage.
 ## Publication initiale sur GitHub
 
 Les commandes exactes sont données dans la section « Publication » du message
-de livraison. Avant publication, adaptez dans `manifest.json` les URL et le
-`codeowners` si votre nom d’utilisateur GitHub n’est pas `adlefau1`.
+de livraison. Le dépôt officiel de cette version est
+`https://github.com/adrienlfr/ha_shutters`.
 
 Le contrôle HACS ignore uniquement l’absence de marque graphique officielle.
 Une marque dans `home-assistant/brands` n’est nécessaire que pour demander
