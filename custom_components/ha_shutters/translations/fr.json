@@ -20,8 +20,8 @@
         }
       },
       "behavior": {
-        "title": "Comportement initial",
-        "description": "Ces réglages seront disponibles comme commandes de l’appareil Fenêtre et pourront être modifiés à tout moment.",
+        "title": "Comportement commun",
+        "description": "Ces réglages s’appliquent à toutes les fenêtres. Ils ne sont demandés qu’une seule fois et restent disponibles comme commandes de l’appareil Solar Shutters.",
         "data": {
           "temperature_threshold": "Température de fermeture",
           "enabled": "Activer l’automatisation",
@@ -49,18 +49,6 @@
           "azimuth_start": "Azimut de début d’ensoleillement",
           "azimuth_end": "Azimut de fin d’ensoleillement"
         }
-      },
-      "behavior": {
-        "title": "Modifier le comportement",
-        "data": {
-          "temperature_threshold": "Température de fermeture",
-          "enabled": "Activer l’automatisation",
-          "only_away": "Uniquement quand la maison est vide",
-          "telework_enabled": "Activer la plage de télétravail",
-          "telework_start": "Début du télétravail",
-          "telework_end": "Fin du télétravail",
-          "dawn_dusk_away": "Ouvrir à l’aube et fermer au crépuscule en cas d’absence"
-        }
       }
     }
   },
@@ -83,4 +71,3 @@
     }
   }
 }
-

@@ -17,7 +17,7 @@ from .const import (
     DOMAIN,
 )
 from .controller import ShutterController
-from .entity import SolarShuttersEntity
+from .entity import SolarShuttersGlobalEntity
 
 TIMES = (
     (CONF_TELEWORK_START, "telework_start", DEFAULT_TELEWORK_START),
@@ -32,13 +32,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up telework time inputs."""
     controller: ShutterController = hass.data[DOMAIN][entry.entry_id]
+    if not controller.is_global_owner:
+        return
     async_add_entities(
         TeleworkTime(controller, key, translation_key, default)
         for key, translation_key, default in TIMES
     )
 
 
-class TeleworkTime(SolarShuttersEntity, TimeEntity):
+class TeleworkTime(SolarShuttersGlobalEntity, TimeEntity):
     """A persisted boundary of the telework time range."""
 
     def __init__(

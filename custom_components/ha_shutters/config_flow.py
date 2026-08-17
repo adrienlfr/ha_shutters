@@ -33,6 +33,7 @@ from .const import (
     DEFAULT_TELEWORK_START,
     DEFAULT_TEMPERATURE_THRESHOLD,
     DOMAIN,
+    GLOBAL_SETTING_KEYS,
 )
 
 
@@ -149,13 +150,17 @@ class SolarShuttersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(user_input[CONF_COVER_ENTITY])
             self._abort_if_unique_id_configured()
             self._window_data = user_input
+            if self.hass.config_entries.async_entries(DOMAIN):
+                return self.async_create_entry(
+                    title=user_input[CONF_WINDOW_NAME], data=user_input
+                )
             return await self.async_step_behavior()
         return self.async_show_form(step_id="user", data_schema=_entity_schema())
 
     async def async_step_behavior(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Collect initial behavior; it remains editable through entities."""
+        """Collect shared behavior when the first window is created."""
         if user_input is not None:
             data = {**self._window_data, **user_input}
             return self.async_create_entry(title=data[CONF_WINDOW_NAME], data=data)
@@ -170,10 +175,7 @@ class SolarShuttersConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class SolarShuttersOptionsFlow(config_entries.OptionsFlow):
-    """Edit all settings after initial setup."""
-
-    def __init__(self) -> None:
-        self._window_data: dict[str, Any] = {}
+    """Edit only window-specific settings after initial setup."""
 
     @property
     def _defaults(self) -> dict[str, Any]:
@@ -187,20 +189,15 @@ class SolarShuttersOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         if user_input is not None:
-            self._window_data = user_input
-            return await self.async_step_behavior()
-        return self.async_show_form(
-            step_id="init", data_schema=_entity_schema(self._defaults)
-        )
-
-    async def async_step_behavior(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        if user_input is not None:
-            title = self._window_data.pop(CONF_WINDOW_NAME)
-            options = {**self.config_entry.options, **self._window_data, **user_input}
+            title = user_input.pop(CONF_WINDOW_NAME)
+            options = {
+                key: value
+                for key, value in self.config_entry.options.items()
+                if key not in GLOBAL_SETTING_KEYS
+            }
+            options.update(user_input)
             self.hass.config_entries.async_update_entry(self.config_entry, title=title)
             return self.async_create_entry(title="", data=options)
         return self.async_show_form(
-            step_id="behavior", data_schema=_behavior_schema(self._defaults)
+            step_id="init", data_schema=_entity_schema(self._defaults)
         )

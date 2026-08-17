@@ -8,6 +8,8 @@ la configuration se fait dans l’interface Home Assistant, sans YAML.
 
 - autant de fenêtres que nécessaire, chacune avec son volet, son thermomètre et
   sa plage d’azimut ;
+- un seul comportement commun à toutes les fenêtres, saisi uniquement lors de
+  la création de la première fenêtre ;
 - fermeture lorsque le soleil est face à la fenêtre et que la température
   dépasse le seuil réglable ;
 - seuil de réouverture avec une hystérésis de 0,5 °C pour éviter les mouvements
@@ -36,7 +38,9 @@ la configuration se fait dans l’interface Home Assistant, sans YAML.
 
 ## Configuration
 
-Ajoutez une intégration par fenêtre. Pour chaque fenêtre, indiquez :
+Ajoutez une intégration par fenêtre. Lors de la première fenêtre seulement,
+Home Assistant demande aussi le comportement commun. Pour chaque fenêtre,
+indiquez :
 
 - un nom ;
 - l’entité `cover` du volet ;
@@ -48,14 +52,17 @@ Ajoutez une intégration par fenêtre. Pour chaque fenêtre, indiquez :
 Repères : nord 0°, est 90°, sud 180°, ouest 270°. L’entité `sun.sun` de Home
 Assistant fournit automatiquement l’azimut et l’élévation du soleil.
 
-Chaque fenêtre apparaît ensuite comme un appareil avec :
+Un appareil global **Solar Shutters** expose les commandes communes :
 
 - quatre interrupteurs : automatisation, absence seulement, télétravail,
   aube/crépuscule en cas d’absence ;
 - deux heures pour la plage de télétravail ;
-- un seuil de température ;
-- trois diagnostics indiquant le soleil direct, l’autorisation de
-  l’automatisation et la demande de fermeture solaire.
+- un seuil de température.
+
+Chaque fenêtre apparaît aussi comme un appareil séparé avec trois diagnostics
+indiquant le soleil direct, l’autorisation de l’automatisation et la demande de
+fermeture solaire. Une modification sur l’appareil global est appliquée
+immédiatement à toutes les fenêtres.
 
 Le mode télétravail est un **complément au mode absence** : si « uniquement en
 cas d’absence » est actif, le volet peut quand même être piloté lorsque le mode

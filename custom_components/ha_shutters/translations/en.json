@@ -20,8 +20,8 @@
         }
       },
       "behavior": {
-        "title": "Initial behavior",
-        "description": "These settings will be exposed as controls on the window device and can be changed at any time.",
+        "title": "Shared behavior",
+        "description": "These settings apply to every window. They are requested only once and remain available as controls on the Solar Shutters device.",
         "data": {
           "temperature_threshold": "Closing temperature",
           "enabled": "Enable automation",
@@ -49,18 +49,6 @@
           "azimuth_start": "Sun exposure start azimuth",
           "azimuth_end": "Sun exposure end azimuth"
         }
-      },
-      "behavior": {
-        "title": "Edit behavior",
-        "data": {
-          "temperature_threshold": "Closing temperature",
-          "enabled": "Enable automation",
-          "only_away": "Only when nobody is home",
-          "telework_enabled": "Enable telework schedule",
-          "telework_start": "Telework start",
-          "telework_end": "Telework end",
-          "dawn_dusk_away": "Open at dawn and close at dusk when away"
-        }
       }
     }
   },
@@ -83,4 +71,3 @@
     }
   }
 }
-

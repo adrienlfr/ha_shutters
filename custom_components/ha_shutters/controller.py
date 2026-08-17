@@ -54,6 +54,7 @@ from .const import (
     STORAGE_VERSION,
     TEMPERATURE_HYSTERESIS,
 )
+from .global_settings import GlobalSettingsManager
 from .logic import automation_is_allowed, azimuth_is_in_range, time_is_in_range
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,9 +64,15 @@ SUN_ENTITY_ID = "sun.sun"
 class ShutterController:
     """Coordinate one cover using sun, temperature and presence states."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        global_settings: GlobalSettingsManager,
+    ) -> None:
         self.hass = hass
         self.entry = entry
+        self.global_settings = global_settings
         self._tracked_cover_entity = entry.data[CONF_COVER_ENTITY]
         self._listeners: list[Callable[[], None]] = []
         self._entity_listeners: list[Callable[[], None]] = []
@@ -86,8 +93,17 @@ class ShutterController:
 
     @property
     def settings(self) -> dict[str, Any]:
-        """Return merged immutable setup data and mutable UI settings."""
-        return {**self.entry.data, **self.entry.options}
+        """Return window data merged with the shared behavior settings."""
+        return {
+            **self.entry.data,
+            **self.entry.options,
+            **self.global_settings.settings,
+        }
+
+    @property
+    def is_global_owner(self) -> bool:
+        """Return whether this window hosts the global control entities."""
+        return self.global_settings.is_owner(self.entry.entry_id)
 
     async def async_setup(self) -> None:
         """Restore state and start tracking Home Assistant entities."""
@@ -166,11 +182,13 @@ class ShutterController:
         self._subscribe_to_entities()
         await self.async_evaluate("settings")
 
+    async def async_global_settings_updated(self) -> None:
+        """Apply a shared behavior change to this window."""
+        await self.async_evaluate("global_settings")
+
     async def async_update_setting(self, key: str, value: Any) -> None:
-        """Persist a setting changed by a control entity."""
-        options = dict(self.entry.options)
-        options[key] = value
-        self.hass.config_entries.async_update_entry(self.entry, options=options)
+        """Persist a shared setting changed by a global control entity."""
+        await self.global_settings.async_update(key, value)
 
     @callback
     def _async_state_changed(self, event: Event) -> None:

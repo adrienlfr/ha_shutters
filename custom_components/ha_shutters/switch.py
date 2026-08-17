@@ -21,7 +21,7 @@ from .const import (
     DOMAIN,
 )
 from .controller import ShutterController
-from .entity import SolarShuttersEntity
+from .entity import SolarShuttersGlobalEntity
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -66,12 +66,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up switches for a window."""
     controller: ShutterController = hass.data[DOMAIN][entry.entry_id]
+    if not controller.is_global_owner:
+        return
     async_add_entities(
         SolarShuttersSwitch(controller, description) for description in DESCRIPTIONS
     )
 
 
-class SolarShuttersSwitch(SolarShuttersEntity, SwitchEntity):
+class SolarShuttersSwitch(SolarShuttersGlobalEntity, SwitchEntity):
     """A persistent Solar Shutters switch."""
 
     entity_description: SolarShuttersSwitchDescription

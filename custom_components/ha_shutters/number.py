@@ -14,7 +14,7 @@ from .const import (
     DOMAIN,
 )
 from .controller import ShutterController
-from .entity import SolarShuttersEntity
+from .entity import SolarShuttersGlobalEntity
 
 
 async def async_setup_entry(
@@ -24,10 +24,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up the threshold number."""
     controller: ShutterController = hass.data[DOMAIN][entry.entry_id]
+    if not controller.is_global_owner:
+        return
     async_add_entities([TemperatureThresholdNumber(controller)])
 
 
-class TemperatureThresholdNumber(SolarShuttersEntity, NumberEntity):
+class TemperatureThresholdNumber(SolarShuttersGlobalEntity, NumberEntity):
     """Temperature from which direct sun causes the shutter to close."""
 
     _attr_translation_key = "temperature_threshold"
