@@ -1,0 +1,86 @@
+{
+  "title": "Volets solaires",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ajouter une fenêtre",
+        "description": "Associez la fenêtre à un volet, un thermomètre et à la plage d’azimut pendant laquelle elle reçoit directement le soleil.",
+        "data": {
+          "window_name": "Nom de la fenêtre",
+          "cover_entity": "Volet",
+          "temperature_entity": "Thermomètre",
+          "presence_entities": "Personnes ou détecteurs de présence",
+          "azimuth_start": "Azimut de début d’ensoleillement",
+          "azimuth_end": "Azimut de fin d’ensoleillement"
+        },
+        "data_description": {
+          "presence_entities": "La maison est occupée si au moins une entité sélectionnée est à la maison. Sélectionnez tous les occupants.",
+          "azimuth_start": "0° = nord, 90° = est, 180° = sud et 270° = ouest.",
+          "azimuth_end": "Une plage traversant le nord est acceptée, par exemple de 300° à 40°."
+        }
+      },
+      "behavior": {
+        "title": "Comportement initial",
+        "description": "Ces réglages seront disponibles comme commandes de l’appareil Fenêtre et pourront être modifiés à tout moment.",
+        "data": {
+          "temperature_threshold": "Température de fermeture",
+          "enabled": "Activer l’automatisation",
+          "only_away": "Uniquement quand la maison est vide",
+          "telework_enabled": "Activer la plage de télétravail",
+          "telework_start": "Début du télétravail",
+          "telework_end": "Fin du télétravail",
+          "dawn_dusk_away": "Ouvrir à l’aube et fermer au crépuscule en cas d’absence"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Ce volet est déjà associé à une fenêtre."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Modifier la fenêtre",
+        "data": {
+          "window_name": "Nom de la fenêtre",
+          "cover_entity": "Volet",
+          "temperature_entity": "Thermomètre",
+          "presence_entities": "Personnes ou détecteurs de présence",
+          "azimuth_start": "Azimut de début d’ensoleillement",
+          "azimuth_end": "Azimut de fin d’ensoleillement"
+        }
+      },
+      "behavior": {
+        "title": "Modifier le comportement",
+        "data": {
+          "temperature_threshold": "Température de fermeture",
+          "enabled": "Activer l’automatisation",
+          "only_away": "Uniquement quand la maison est vide",
+          "telework_enabled": "Activer la plage de télétravail",
+          "telework_start": "Début du télétravail",
+          "telework_end": "Fin du télétravail",
+          "dawn_dusk_away": "Ouvrir à l’aube et fermer au crépuscule en cas d’absence"
+        }
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "enabled": {"name": "Automatisation"},
+      "only_away": {"name": "Uniquement en cas d’absence"},
+      "telework_enabled": {"name": "Mode télétravail"},
+      "dawn_dusk_away": {"name": "Aube et crépuscule en cas d’absence"}
+    },
+    "number": {"temperature_threshold": {"name": "Température de fermeture"}},
+    "time": {
+      "telework_start": {"name": "Début du télétravail"},
+      "telework_end": {"name": "Fin du télétravail"}
+    },
+    "binary_sensor": {
+      "sun_on_window": {"name": "Soleil direct"},
+      "automation_active": {"name": "Automatisation active"},
+      "shading_required": {"name": "Ombrage nécessaire"}
+    }
+  }
+}
+

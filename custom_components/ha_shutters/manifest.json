@@ -1,0 +1,14 @@
+{
+  "codeowners": ["@adlefau1"],
+  "config_flow": true,
+  "dependencies": ["sun"],
+  "documentation": "https://github.com/adlefau1/ha_shutters",
+  "domain": "ha_shutters",
+  "integration_type": "helper",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/adlefau1/ha_shutters/issues",
+  "name": "Solar Shutters",
+  "requirements": [],
+  "version": "0.1.0"
+}
+
