@@ -8,6 +8,19 @@ PLATFORMS: Final = ["binary_sensor", "number", "switch", "time"]
 DATA_GLOBAL_MANAGER: Final = "global_settings_manager"
 
 CONF_WINDOW_NAME: Final = "window_name"
+CONF_PROGRESSIVE_ENABLED: Final = "progressive_enabled"
+CONF_FACADE_AZIMUTH: Final = "facade_azimuth"
+CONF_WINDOW_HEIGHT: Final = "window_height"
+CONF_SILL_HEIGHT: Final = "sill_height"
+CONF_SUN_DEPTH: Final = "sun_depth"
+CONF_OUTDOOR_TEMPERATURE_ENTITY: Final = "outdoor_temperature_entity"
+
+GEOMETRY_KEYS: Final = (
+    CONF_FACADE_AZIMUTH,
+    CONF_WINDOW_HEIGHT,
+    CONF_SILL_HEIGHT,
+    CONF_SUN_DEPTH,
+)
 CONF_COVER_ENTITY: Final = "cover_entity"
 CONF_TEMPERATURE_ENTITY: Final = "temperature_entity"
 CONF_PRESENCE_ENTITIES: Final = "presence_entities"
@@ -34,6 +47,7 @@ TEMPERATURE_HYSTERESIS: Final = 0.5
 STORAGE_VERSION: Final = 1
 
 GLOBAL_SETTING_KEYS: Final = (
+    CONF_OUTDOOR_TEMPERATURE_ENTITY,
     CONF_ENABLED,
     CONF_ONLY_AWAY,
     CONF_TELEWORK_ENABLED,
@@ -43,6 +57,7 @@ GLOBAL_SETTING_KEYS: Final = (
     CONF_TEMPERATURE_THRESHOLD,
 )
 DEFAULT_GLOBAL_SETTINGS: Final = {
+    CONF_OUTDOOR_TEMPERATURE_ENTITY: "",
     CONF_ENABLED: DEFAULT_ENABLED,
     CONF_ONLY_AWAY: DEFAULT_ONLY_AWAY,
     CONF_TELEWORK_ENABLED: DEFAULT_TELEWORK_ENABLED,

@@ -11,12 +11,22 @@
           "temperature_entity": "Temperature sensor",
           "presence_entities": "People or presence trackers",
           "azimuth_start": "Sun exposure start azimuth",
-          "azimuth_end": "Sun exposure end azimuth"
+          "azimuth_end": "Sun exposure end azimuth",
+          "progressive_enabled": "Progressive opening",
+          "facade_azimuth": "Facade orientation",
+          "window_height": "Glazed opening height",
+          "sill_height": "Bottom of the window above the floor",
+          "sun_depth": "Allowed sunlight depth on the floor"
         },
         "data_description": {
           "presence_entities": "The house is considered occupied when at least one selected entity is home. Select every household member.",
           "azimuth_start": "Use 0° for north, 90° for east, 180° for south and 270° for west.",
-          "azimuth_end": "Ranges crossing north are supported, for example 300° to 40°."
+          "azimuth_end": "Ranges crossing north are supported, for example 300° to 40°.",
+          "progressive_enabled": "Requires a top-down shutter supporting percentage positions and the four measurements below. Adjustments use 10-point steps, at least 30 minutes apart.",
+          "facade_azimuth": "Direction perpendicular to the glass, facing outside: north 0°, east 90°, south 180°, west 270°.",
+          "window_height": "Uncovered height when the shutter is fully open, in metres.",
+          "sill_height": "Vertical distance from the floor to the bottom of the glazed opening, in metres; 0 for floor-level windows.",
+          "sun_depth": "Maximum sunlight penetration across the floor, perpendicular to the facade, in metres. This distance decreases as the room heats up."
         }
       },
       "behavior": {
@@ -29,12 +39,20 @@
           "telework_enabled": "Enable telework schedule",
           "telework_start": "Telework start",
           "telework_end": "Telework end",
-          "dawn_dusk_away": "Open at dawn and close at dusk when away"
+          "dawn_dusk_away": "Open at dawn and close at dusk when away",
+          "outdoor_temperature_entity": "Outdoor temperature (shared by all windows)"
+        },
+        "data_description": {
+          "outdoor_temperature_entity": "Optional temperature sensor or weather entity. Anticipates outdoor heat in progressive mode. Clear this field to disable anticipation for all windows."
         }
       }
     },
     "abort": {
       "already_configured": "This shutter is already assigned to a window."
+    },
+    "error": {
+      "geometry_required": "This measurement is required in progressive mode.",
+      "invalid_geometry": "Enter valid geometry: positive height and depth, nonnegative sill height, azimuth from 0 to 360°."
     }
   },
   "options": {
@@ -47,29 +65,67 @@
           "temperature_entity": "Temperature sensor",
           "presence_entities": "People or presence trackers",
           "azimuth_start": "Sun exposure start azimuth",
-          "azimuth_end": "Sun exposure end azimuth"
+          "azimuth_end": "Sun exposure end azimuth",
+          "progressive_enabled": "Progressive opening",
+          "facade_azimuth": "Facade orientation",
+          "window_height": "Glazed opening height",
+          "sill_height": "Bottom of the window above the floor",
+          "sun_depth": "Allowed sunlight depth on the floor",
+          "outdoor_temperature_entity": "Outdoor temperature (shared by all windows)"
+        },
+        "data_description": {
+          "progressive_enabled": "Requires a top-down shutter supporting percentage positions and the four measurements below. Adjustments use 10-point steps, at least 30 minutes apart.",
+          "facade_azimuth": "Direction perpendicular to the glass, facing outside: north 0°, east 90°, south 180°, west 270°.",
+          "window_height": "Uncovered height when the shutter is fully open, in metres.",
+          "sill_height": "Vertical distance from the floor to the bottom of the glazed opening, in metres; 0 for floor-level windows.",
+          "sun_depth": "Maximum sunlight penetration across the floor, perpendicular to the facade, in metres. This distance decreases as the room heats up.",
+          "outdoor_temperature_entity": "Optional temperature sensor or weather entity. Anticipates outdoor heat in progressive mode. Clear this field to disable anticipation for all windows."
         }
       }
+    },
+    "error": {
+      "geometry_required": "This measurement is required in progressive mode.",
+      "invalid_geometry": "Enter valid geometry: positive height and depth, nonnegative sill height, azimuth from 0 to 360°."
     }
   },
   "entity": {
     "switch": {
-      "enabled": {"name": "Automation"},
-      "only_away": {"name": "Only when away"},
-      "telework_enabled": {"name": "Telework mode"},
-      "dawn_dusk_away": {"name": "Dawn and dusk when away"}
+      "enabled": {
+        "name": "Automation"
+      },
+      "only_away": {
+        "name": "Only when away"
+      },
+      "telework_enabled": {
+        "name": "Telework mode"
+      },
+      "dawn_dusk_away": {
+        "name": "Dawn and dusk when away"
+      }
     },
     "number": {
-      "temperature_threshold": {"name": "Closing temperature"}
+      "temperature_threshold": {
+        "name": "Closing temperature"
+      }
     },
     "time": {
-      "telework_start": {"name": "Telework start"},
-      "telework_end": {"name": "Telework end"}
+      "telework_start": {
+        "name": "Telework start"
+      },
+      "telework_end": {
+        "name": "Telework end"
+      }
     },
     "binary_sensor": {
-      "sun_on_window": {"name": "Direct sun"},
-      "automation_active": {"name": "Automation active"},
-      "shading_required": {"name": "Shading required"}
+      "sun_on_window": {
+        "name": "Direct sun"
+      },
+      "automation_active": {
+        "name": "Automation active"
+      },
+      "shading_required": {
+        "name": "Shading required"
+      }
     }
   }
 }

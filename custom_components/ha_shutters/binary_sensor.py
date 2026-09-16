@@ -73,3 +73,16 @@ class SolarShuttersBinarySensor(SolarShuttersEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return bool(getattr(self.controller, self.entity_description.attribute))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object] | None:
+        """Explain the progressive decision without creating duplicate controls."""
+        if self.entity_description.key != "shading_required":
+            return None
+        return {
+            "calculated_position": self.controller.calculated_target,
+            "last_commanded_position": self.controller.last_position_target,
+            "effective_temperature_threshold": self.controller.effective_threshold,
+            "outdoor_temperature_celsius": self.controller.outdoor_temperature_celsius,
+            "wait_reason": self.controller.wait_reason,
+        }

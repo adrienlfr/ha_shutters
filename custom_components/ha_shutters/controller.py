@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import math
 from collections.abc import Callable
 from datetime import datetime, time, timedelta
 from typing import Any
 
 from homeassistant.components.cover import DOMAIN as COVER_DOMAIN
-from homeassistant.components.cover import SERVICE_CLOSE_COVER, SERVICE_OPEN_COVER
+from homeassistant.components.cover import (
+    SERVICE_CLOSE_COVER,
+    SERVICE_OPEN_COVER,
+    SERVICE_SET_COVER_POSITION,
+    CoverEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
@@ -37,13 +42,19 @@ from .const import (
     CONF_COVER_ENTITY,
     CONF_DAWN_DUSK_AWAY,
     CONF_ENABLED,
+    CONF_FACADE_AZIMUTH,
     CONF_ONLY_AWAY,
+    CONF_OUTDOOR_TEMPERATURE_ENTITY,
     CONF_PRESENCE_ENTITIES,
+    CONF_PROGRESSIVE_ENABLED,
+    CONF_SILL_HEIGHT,
+    CONF_SUN_DEPTH,
     CONF_TELEWORK_ENABLED,
     CONF_TELEWORK_END,
     CONF_TELEWORK_START,
     CONF_TEMPERATURE_ENTITY,
     CONF_TEMPERATURE_THRESHOLD,
+    CONF_WINDOW_HEIGHT,
     DEFAULT_DAWN_DUSK_AWAY,
     DEFAULT_ENABLED,
     DEFAULT_ONLY_AWAY,
@@ -56,10 +67,22 @@ from .const import (
     TEMPERATURE_HYSTERESIS,
 )
 from .global_settings import GlobalSettingsManager
-from .logic import automation_is_allowed, azimuth_is_in_range, time_is_in_range
+from .logic import (
+    automation_is_allowed,
+    azimuth_is_in_range,
+    effective_temperature_threshold,
+    finite_float,
+    geometric_opening,
+    opening_step,
+    sun_is_in_front,
+    time_is_in_range,
+)
 
 _LOGGER = logging.getLogger(__name__)
 SUN_ENTITY_ID = "sun.sun"
+POSITION_TOLERANCE = 3
+SOLAR_COMMAND_INTERVAL = timedelta(minutes=30)
+TARGET_STABILITY = timedelta(minutes=5)
 
 
 class ShutterController:
@@ -85,7 +108,22 @@ class ShutterController:
         self.last_desired_closed = False
         self._ignore_cover_changes_until: datetime | None = None
         self._expected_cover_states: set[str] = set()
-        self._last_saved_state: tuple[bool, bool, bool, bool] | None = None
+        self._last_saved_state: dict[str, Any] | None = None
+        self._evaluation_lock = asyncio.Lock()
+        self.last_position_target: int | None = None
+        self._last_attempt: datetime | None = None
+        self._last_attempt_target: int | None = None
+        self._thermal_active = False
+        self._candidate: int | None = None
+        self._candidate_since: datetime | None = None
+        self._no_sun_since: datetime | None = None
+        self._expected_position: int | None = None
+        self._command_start_position: float | None = None
+        self._progressive_active = False
+        self.calculated_target: float | None = None
+        self.effective_threshold: float | None = None
+        self.outdoor_temperature_celsius: float | None = None
+        self.wait_reason: str | None = None
         self.sun_on_window = False
         self.automation_active = False
         self.shading_required = False
@@ -113,12 +151,18 @@ class ShutterController:
         self.night_closed = bool(stored.get("night_closed", False))
         self.manual_override = bool(stored.get("manual_override", False))
         self.last_desired_closed = bool(stored.get("last_desired_closed", False))
-        self._last_saved_state = (
-            self.managed_closed,
-            self.night_closed,
-            self.manual_override,
-            self.last_desired_closed,
-        )
+        target = finite_float(stored.get("last_position_target"))
+        if target is not None and 0 <= target <= 100:
+            self.last_position_target = int(target)
+        self._thermal_active = bool(stored.get("thermal_active", False))
+        try:
+            self._last_attempt = datetime.fromisoformat(stored["last_attempt"])
+            if self._last_attempt.tzinfo is None:
+                self._last_attempt = None
+        except (KeyError, TypeError, ValueError):
+            self._last_attempt = None
+        self._last_attempt_target = stored.get("last_attempt_target")
+        self._last_saved_state = self._runtime_state()
         self._subscribe_to_entities()
         self._listeners.append(
             async_track_time_interval(
@@ -148,6 +192,8 @@ class ShutterController:
             settings[CONF_TEMPERATURE_ENTITY],
             *settings.get(CONF_PRESENCE_ENTITIES, []),
         }
+        if outdoor := settings.get(CONF_OUTDOOR_TEMPERATURE_ENTITY):
+            entities.add(outdoor)
         self._entity_listeners.append(
             async_track_state_change_event(
                 self.hass, list(entities), self._async_state_changed
@@ -180,11 +226,21 @@ class ShutterController:
             self.night_closed = False
             self.manual_override = False
             self.last_desired_closed = False
+            self.last_position_target = None
+            self._last_attempt = None
+            self._last_attempt_target = None
+            self._thermal_active = False
+            self._expected_position = None
+            self._ignore_cover_changes_until = None
+        self._candidate = None
+        self._candidate_since = None
+        self._no_sun_since = None
         self._subscribe_to_entities()
         await self.async_evaluate("settings")
 
     async def async_global_settings_updated(self) -> None:
         """Apply a shared behavior change to this window."""
+        self._subscribe_to_entities()
         await self.async_evaluate("global_settings")
 
     async def async_update_setting(self, key: str, value: Any) -> None:
@@ -195,11 +251,15 @@ class ShutterController:
     def _async_state_changed(self, event: Event) -> None:
         entity_id = event.data["entity_id"]
         if entity_id == self.settings[CONF_COVER_ENTITY]:
-            self._handle_cover_state_change(event.data.get("new_state"))
+            self._handle_cover_state_change(
+                event.data.get("new_state"), event.data.get("old_state")
+            )
         self.hass.async_create_task(self.async_evaluate(f"state:{entity_id}"))
 
     @callback
-    def _handle_cover_state_change(self, new_state: State | None) -> None:
+    def _handle_cover_state_change(
+        self, new_state: State | None, old_state: State | None = None
+    ) -> None:
         """Detect a manual action and pause control for this decision cycle."""
         if new_state is None or new_state.state not in {
             STATE_OPEN,
@@ -207,6 +267,23 @@ class ShutterController:
             STATE_CLOSED,
             STATE_CLOSING,
         }:
+            return
+        if old_state is not None:
+            if old_state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+                return
+            if old_state.state == new_state.state and old_state.attributes.get(
+                "current_position"
+            ) == new_state.attributes.get("current_position"):
+                return
+        if self._progressive_active:
+            if self._is_expected_position_change(new_state, old_state):
+                return
+            if self.last_desired_closed or self.managed_closed:
+                self.manual_override = True
+                self.managed_closed = False
+                self._expected_position = None
+                self._candidate = None
+                self.hass.async_create_task(self._async_save_state())
             return
         if (
             self._ignore_cover_changes_until is not None
@@ -224,12 +301,28 @@ class ShutterController:
 
     async def async_evaluate(self, reason: str) -> None:
         """Evaluate the desired state and operate the cover if necessary."""
+        async with self._evaluation_lock:
+            await self._async_evaluate_locked(reason)
+
+    async def _async_evaluate_locked(self, reason: str) -> None:
         settings = self.settings
         sun_state = self.hass.states.get(SUN_ENTITY_ID)
         cover_state = self.hass.states.get(settings[CONF_COVER_ENTITY])
         temperature_state = self.hass.states.get(settings[CONF_TEMPERATURE_ENTITY])
 
-        if sun_state is None or cover_state is None:
+        if cover_state is None or cover_state.state in {
+            STATE_UNKNOWN,
+            STATE_UNAVAILABLE,
+        }:
+            self.automation_active = False
+            self.wait_reason = "cover_unavailable"
+            self._candidate = None
+            self._candidate_since = None
+            self._no_sun_since = None
+            self._notify_subscribers()
+            return
+        self._progressive_active = self._can_use_progressive(cover_state)
+        if sun_state is None and not self._progressive_active:
             self.automation_active = False
             self._notify_subscribers()
             return
@@ -250,6 +343,23 @@ class ShutterController:
                 CONF_TELEWORK_ENABLED, DEFAULT_TELEWORK_ENABLED
             ),
             telework_active=telework_active,
+        )
+
+        if self._progressive_active:
+            await self._async_evaluate_progressive(sun_state, cover_state, away)
+            await self._async_save_state()
+            self._notify_subscribers()
+            return
+
+        self.calculated_target = None
+        self.effective_threshold = None
+        self.outdoor_temperature_celsius = None
+        self._thermal_active = False
+        self._candidate = None
+        self._candidate_since = None
+        self._no_sun_since = None
+        self.wait_reason = (
+            "binary_fallback" if settings.get(CONF_PROGRESSIVE_ENABLED) else None
         )
 
         azimuth = self._float_attribute(sun_state, "azimuth")
@@ -319,7 +429,260 @@ class ShutterController:
         await self._async_save_state()
         self._notify_subscribers()
 
-    async def _async_call_cover(self, service: str) -> bool:
+    def _can_use_progressive(self, cover: State) -> bool:
+        settings = self.settings
+        if not settings.get(CONF_PROGRESSIVE_ENABLED, False):
+            return False
+        features = finite_float(cover.attributes.get("supported_features"))
+        if features is None or not int(features) & CoverEntityFeature.SET_POSITION:
+            return False
+        facade = finite_float(settings.get(CONF_FACADE_AZIMUTH))
+        height = finite_float(settings.get(CONF_WINDOW_HEIGHT))
+        sill = finite_float(settings.get(CONF_SILL_HEIGHT))
+        depth = finite_float(settings.get(CONF_SUN_DEPTH))
+        return (
+            facade is not None
+            and 0 <= facade <= 360
+            and height is not None
+            and height > 0
+            and sill is not None
+            and sill >= 0
+            and depth is not None
+            and depth > 0
+        )
+
+    @staticmethod
+    def _cover_position(state: State | None) -> float | None:
+        if state is None or state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+            return None
+        position = finite_float(state.attributes.get("current_position"))
+        if position is not None and 0 <= position <= 100:
+            return position
+        return 0.0 if state.state == STATE_CLOSED else None
+
+    def _is_expected_position_change(
+        self, state: State, old_state: State | None
+    ) -> bool:
+        """Accept progress towards our target, but not a reversal or early stop."""
+        target = self._expected_position
+        if (
+            target is None
+            or self._ignore_cover_changes_until is None
+            or dt_util.utcnow() >= self._ignore_cover_changes_until
+        ):
+            return False
+        position = self._cover_position(state)
+        if position is not None and abs(position - target) <= POSITION_TOLERANCE:
+            # Keep accepting final position reports until the command window
+            # expires: some devices publish OPEN at 52, then 51, then 50%.
+            return True
+        start = self._command_start_position
+        if start is None:
+            return False
+        direction = STATE_OPENING if target > start else STATE_CLOSING
+        old_position = self._cover_position(old_state)
+        if old_position is None:
+            old_position = start
+        moving_towards = position is None or (
+            min(start, target) - POSITION_TOLERANCE
+            <= position
+            <= max(start, target) + POSITION_TOLERANCE
+            and (
+                position >= old_position if target > start else position <= old_position
+            )
+        )
+        if state.state == direction and moving_towards:
+            return True
+        # Some integrations report OPEN throughout a partial movement.
+        return bool(
+            state.state == STATE_OPEN
+            and position is not None
+            and moving_towards
+            and abs(position - target) < abs(old_position - target)
+        )
+
+    async def _async_evaluate_progressive(
+        self, sun: State | None, cover: State, away: bool
+    ) -> None:
+        settings = self.settings
+        now = dt_util.utcnow()
+        self.wait_reason = None
+        self.calculated_target = None
+        self.temperature_celsius = self._temperature_in_celsius(
+            self.hass.states.get(settings[CONF_TEMPERATURE_ENTITY])
+        )
+        outdoor_id = settings.get(CONF_OUTDOOR_TEMPERATURE_ENTITY)
+        self.outdoor_temperature_celsius = self._temperature_in_celsius(
+            self.hass.states.get(outdoor_id) if outdoor_id else None,
+            weather=bool(outdoor_id and outdoor_id.startswith("weather.")),
+        )
+        self.effective_threshold = effective_temperature_threshold(
+            self.get_float(CONF_TEMPERATURE_THRESHOLD, DEFAULT_TEMPERATURE_THRESHOLD),
+            self.temperature_celsius,
+            self.outdoor_temperature_celsius,
+        )
+        azimuth = self._float_attribute(sun, "azimuth") if sun else None
+        elevation = self._float_attribute(sun, "elevation") if sun else None
+        valid_sun = bool(
+            sun is not None
+            and sun.state in {"above_horizon", "below_horizon"}
+            and azimuth is not None
+            and elevation is not None
+            and -90 <= elevation <= 90
+        )
+        self.sun_on_window = bool(
+            valid_sun
+            and elevation > 0
+            and sun_is_in_front(azimuth, float(settings[CONF_FACADE_AZIMUTH]))
+            and azimuth_is_in_range(
+                azimuth,
+                float(settings[CONF_AZIMUTH_START]),
+                float(settings[CONF_AZIMUTH_END]),
+            )
+        )
+        enabled = self.get_bool(CONF_ENABLED, DEFAULT_ENABLED)
+        night_enabled = enabled and self.get_bool(
+            CONF_DAWN_DUSK_AWAY, DEFAULT_DAWN_DUSK_AWAY
+        )
+        if valid_sun:
+            self.night_away_active = bool(
+                night_enabled
+                and sun.state == "below_horizon"
+                and (away or self.night_closed)
+            )
+        elif not night_enabled:
+            self.night_away_active = False
+
+        urgent = False
+        cycle_active = False
+        if self.night_away_active:
+            raw_target, target, urgent, cycle_active = 0.0, 0, True, True
+            self.shading_required = False
+            self._no_sun_since = None
+        elif not self.automation_active:
+            raw_target, target, urgent = 100.0, 100, True
+            self.shading_required = False
+            self._thermal_active = False
+            self._no_sun_since = None
+        elif not valid_sun:
+            self._candidate = None
+            self._candidate_since = None
+            self._no_sun_since = None
+            self.wait_reason = "sun_unavailable"
+            return
+        elif not self.sun_on_window:
+            self.shading_required = False
+            if self._no_sun_since is None:
+                self._no_sun_since = now
+            self._candidate = None
+            self._candidate_since = None
+            if now - self._no_sun_since < TARGET_STABILITY:
+                self.wait_reason = "no_sun_confirmation"
+                return
+            raw_target, target, urgent = 100.0, 100, True
+            self._thermal_active = False
+        else:
+            self._no_sun_since = None
+            heat_threshold = self.effective_threshold - (
+                TEMPERATURE_HYSTERESIS if self._thermal_active else 0
+            )
+            self._thermal_active = (
+                self.temperature_celsius is None
+                or self.temperature_celsius >= heat_threshold
+            )
+            self.shading_required = self._thermal_active
+            cycle_active = self._thermal_active
+            if cycle_active:
+                raw_target = geometric_opening(
+                    azimuth=azimuth,
+                    elevation=elevation,
+                    facade=float(settings[CONF_FACADE_AZIMUTH]),
+                    height=float(settings[CONF_WINDOW_HEIGHT]),
+                    sill=float(settings[CONF_SILL_HEIGHT]),
+                    depth=float(settings[CONF_SUN_DEPTH]),
+                    indoor=self.temperature_celsius,
+                    threshold=self.effective_threshold,
+                )
+                target = opening_step(raw_target, self.last_position_target)
+            else:
+                raw_target, target = 100.0, 100
+
+        self.calculated_target = raw_target
+        if not self.night_away_active:
+            self.night_closed = False
+        if cycle_active:
+            self.last_desired_closed = True
+        if not urgent:
+            if self._candidate != target:
+                self._candidate = target
+                self._candidate_since = now
+            if (
+                self._candidate_since is None
+                or now - self._candidate_since < TARGET_STABILITY
+            ):
+                self.wait_reason = "target_confirmation"
+                return
+        else:
+            self._candidate = None
+            self._candidate_since = None
+        if not cycle_active:
+            self.manual_override = False
+            self.last_desired_closed = False
+        if self.manual_override:
+            self.wait_reason = "manual_override"
+            return
+        if target == 100 and not self.managed_closed:
+            self.wait_reason = "not_managed"
+            return
+        if cover.state in {STATE_OPENING, STATE_CLOSING}:
+            self.wait_reason = "moving"
+            return
+        position = self._cover_position(cover)
+        if position is None:
+            self.wait_reason = "position_unavailable"
+            return
+        if (
+            self._expected_position is not None
+            and self._ignore_cover_changes_until is not None
+            and now < self._ignore_cover_changes_until
+            and abs(position - self._expected_position) > POSITION_TOLERANCE
+        ):
+            self.wait_reason = "moving"
+            return
+        if abs(position - target) <= POSITION_TOLERANCE:
+            self.wait_reason = "at_target"
+            if target == 100:
+                self.managed_closed = False
+            if self.night_away_active and self.managed_closed:
+                self.night_closed = True
+            return
+        if (
+            self._last_attempt is not None
+            and now - self._last_attempt < SOLAR_COMMAND_INTERVAL
+        ):
+            # Priority transitions may bypass the interval, but a failed priority
+            # command must not be retried every minute either.
+            if not urgent or self._last_attempt_target == target:
+                self.wait_reason = "command_interval"
+                return
+        self._last_attempt = now
+        self._last_attempt_target = target
+        self._expected_position = target
+        self._command_start_position = position
+        # Retain the retry interval even if Home Assistant stops during the call.
+        await self._async_save_state()
+        if await self._async_call_cover(SERVICE_SET_COVER_POSITION, position=target):
+            self.last_position_target = target
+            self.managed_closed = target < 100 and not self.manual_override
+            if self.night_away_active and self.managed_closed:
+                self.night_closed = True
+        else:
+            self._expected_position = None
+            self.wait_reason = "command_failed"
+
+    async def _async_call_cover(
+        self, service: str, *, position: int | None = None
+    ) -> bool:
         """Call a cover service and ignore resulting physical transitions briefly."""
         self._ignore_cover_changes_until = dt_util.utcnow() + timedelta(minutes=2)
         self._expected_cover_states = (
@@ -331,6 +694,11 @@ class ShutterController:
             await self.hass.services.async_call(
                 COVER_DOMAIN,
                 service,
+                **(
+                    {"service_data": {"position": position}}
+                    if position is not None
+                    else {}
+                ),
                 target={"entity_id": self.settings[CONF_COVER_ENTITY]},
                 blocking=True,
             )
@@ -354,26 +722,28 @@ class ShutterController:
 
     @staticmethod
     def _float_attribute(state: State, attribute: str) -> float | None:
-        try:
-            return float(state.attributes[attribute])
-        except (KeyError, TypeError, ValueError):
-            return None
+        return finite_float(state.attributes.get(attribute))
 
     @staticmethod
-    def _temperature_in_celsius(state: State | None) -> float | None:
+    def _temperature_in_celsius(
+        state: State | None, *, weather: bool = False
+    ) -> float | None:
         if state is None or state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
             return None
-        try:
-            value = float(state.state)
-        except (TypeError, ValueError):
+        value = finite_float(
+            state.attributes.get("temperature") if weather else state.state
+        )
+        if value is None:
             return None
-        if not math.isfinite(value):
-            return None
-        unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        unit = state.attributes.get(
+            "temperature_unit" if weather else ATTR_UNIT_OF_MEASUREMENT
+        )
         if not unit or unit == UnitOfTemperature.CELSIUS:
             return value
         try:
-            return TemperatureConverter.convert(value, unit, UnitOfTemperature.CELSIUS)
+            return finite_float(
+                TemperatureConverter.convert(value, unit, UnitOfTemperature.CELSIUS)
+            )
         except (TypeError, ValueError):
             return None
 
@@ -381,10 +751,8 @@ class ShutterController:
         return bool(self.settings.get(key, default))
 
     def get_float(self, key: str, default: float) -> float:
-        try:
-            return float(self.settings.get(key, default))
-        except (TypeError, ValueError):
-            return default
+        value = finite_float(self.settings.get(key, default))
+        return default if value is None else value
 
     def get_time(self, key: str, default: time) -> time:
         value = self.settings.get(key, default.isoformat())
@@ -395,21 +763,23 @@ class ShutterController:
         except (TypeError, ValueError):
             return default
 
+    def _runtime_state(self) -> dict[str, Any]:
+        return {
+            "managed_closed": self.managed_closed,
+            "night_closed": self.night_closed,
+            "manual_override": self.manual_override,
+            "last_desired_closed": self.last_desired_closed,
+            "last_position_target": self.last_position_target,
+            "last_attempt": self._last_attempt.isoformat()
+            if self._last_attempt
+            else None,
+            "last_attempt_target": self._last_attempt_target,
+            "thermal_active": self._thermal_active,
+        }
+
     async def _async_save_state(self) -> None:
-        current_state = (
-            self.managed_closed,
-            self.night_closed,
-            self.manual_override,
-            self.last_desired_closed,
-        )
+        current_state = self._runtime_state()
         if current_state == self._last_saved_state:
             return
-        await self._store.async_save(
-            {
-                "managed_closed": self.managed_closed,
-                "night_closed": self.night_closed,
-                "manual_override": self.manual_override,
-                "last_desired_closed": self.last_desired_closed,
-            }
-        )
+        await self._store.async_save(current_state)
         self._last_saved_state = current_state

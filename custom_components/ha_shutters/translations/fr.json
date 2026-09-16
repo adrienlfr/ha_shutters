@@ -11,12 +11,22 @@
           "temperature_entity": "Thermomètre",
           "presence_entities": "Personnes ou détecteurs de présence",
           "azimuth_start": "Azimut de début d’ensoleillement",
-          "azimuth_end": "Azimut de fin d’ensoleillement"
+          "azimuth_end": "Azimut de fin d’ensoleillement",
+          "progressive_enabled": "Ouverture progressive",
+          "facade_azimuth": "Orientation de la façade",
+          "window_height": "Hauteur de l’ouverture vitrée",
+          "sill_height": "Hauteur du bas de la fenêtre au-dessus du sol",
+          "sun_depth": "Profondeur de soleil autorisée au sol"
         },
         "data_description": {
           "presence_entities": "La maison est occupée si au moins une entité sélectionnée est à la maison. Sélectionnez tous les occupants.",
           "azimuth_start": "0° = nord, 90° = est, 180° = sud et 270° = ouest.",
-          "azimuth_end": "Une plage traversant le nord est acceptée, par exemple de 300° à 40°."
+          "azimuth_end": "Une plage traversant le nord est acceptée, par exemple de 300° à 40°.",
+          "progressive_enabled": "Nécessite un volet réglable en pourcentage, descendant du haut vers le bas, et les quatre mesures ci-dessous. Ajustements par paliers de 10 points, espacés de 30 minutes.",
+          "facade_azimuth": "Direction perpendiculaire à la vitre, vers l’extérieur : nord 0°, est 90°, sud 180°, ouest 270°.",
+          "window_height": "Hauteur découverte lorsque le volet est entièrement ouvert, en mètres.",
+          "sill_height": "Distance verticale entre le sol et le bas de l’ouverture vitrée, en mètres ; 0 pour une baie au niveau du sol.",
+          "sun_depth": "Distance maximale de pénétration du soleil sur le sol, perpendiculairement à la façade, en mètres. Cette distance diminue lorsque la pièce chauffe."
         }
       },
       "behavior": {
@@ -29,12 +39,20 @@
           "telework_enabled": "Activer la plage de télétravail",
           "telework_start": "Début du télétravail",
           "telework_end": "Fin du télétravail",
-          "dawn_dusk_away": "Ouvrir à l’aube et fermer au crépuscule en cas d’absence"
+          "dawn_dusk_away": "Ouvrir à l’aube et fermer au crépuscule en cas d’absence",
+          "outdoor_temperature_entity": "Température extérieure (commune à toutes les fenêtres)"
+        },
+        "data_description": {
+          "outdoor_temperature_entity": "Facultatif : capteur de température ou entité météo. Permet d’anticiper la chaleur en mode progressif. Vider ce champ désactive l’anticipation pour toutes les fenêtres."
         }
       }
     },
     "abort": {
       "already_configured": "Ce volet est déjà associé à une fenêtre."
+    },
+    "error": {
+      "geometry_required": "Cette mesure est obligatoire en mode progressif.",
+      "invalid_geometry": "Indiquez une mesure valide : hauteur et profondeur positives, hauteur au sol positive ou nulle, azimut de 0 à 360°."
     }
   },
   "options": {
@@ -47,27 +65,67 @@
           "temperature_entity": "Thermomètre",
           "presence_entities": "Personnes ou détecteurs de présence",
           "azimuth_start": "Azimut de début d’ensoleillement",
-          "azimuth_end": "Azimut de fin d’ensoleillement"
+          "azimuth_end": "Azimut de fin d’ensoleillement",
+          "progressive_enabled": "Ouverture progressive",
+          "facade_azimuth": "Orientation de la façade",
+          "window_height": "Hauteur de l’ouverture vitrée",
+          "sill_height": "Hauteur du bas de la fenêtre au-dessus du sol",
+          "sun_depth": "Profondeur de soleil autorisée au sol",
+          "outdoor_temperature_entity": "Température extérieure (commune à toutes les fenêtres)"
+        },
+        "data_description": {
+          "progressive_enabled": "Nécessite un volet réglable en pourcentage, descendant du haut vers le bas, et les quatre mesures ci-dessous. Ajustements par paliers de 10 points, espacés de 30 minutes.",
+          "facade_azimuth": "Direction perpendiculaire à la vitre, vers l’extérieur : nord 0°, est 90°, sud 180°, ouest 270°.",
+          "window_height": "Hauteur découverte lorsque le volet est entièrement ouvert, en mètres.",
+          "sill_height": "Distance verticale entre le sol et le bas de l’ouverture vitrée, en mètres ; 0 pour une baie au niveau du sol.",
+          "sun_depth": "Distance maximale de pénétration du soleil sur le sol, perpendiculairement à la façade, en mètres. Cette distance diminue lorsque la pièce chauffe.",
+          "outdoor_temperature_entity": "Facultatif : capteur de température ou entité météo. Permet d’anticiper la chaleur en mode progressif. Vider ce champ désactive l’anticipation pour toutes les fenêtres."
         }
       }
+    },
+    "error": {
+      "geometry_required": "Cette mesure est obligatoire en mode progressif.",
+      "invalid_geometry": "Indiquez une mesure valide : hauteur et profondeur positives, hauteur au sol positive ou nulle, azimut de 0 à 360°."
     }
   },
   "entity": {
     "switch": {
-      "enabled": {"name": "Automatisation"},
-      "only_away": {"name": "Uniquement en cas d’absence"},
-      "telework_enabled": {"name": "Mode télétravail"},
-      "dawn_dusk_away": {"name": "Aube et crépuscule en cas d’absence"}
+      "enabled": {
+        "name": "Automatisation"
+      },
+      "only_away": {
+        "name": "Uniquement en cas d’absence"
+      },
+      "telework_enabled": {
+        "name": "Mode télétravail"
+      },
+      "dawn_dusk_away": {
+        "name": "Aube et crépuscule en cas d’absence"
+      }
     },
-    "number": {"temperature_threshold": {"name": "Température de fermeture"}},
+    "number": {
+      "temperature_threshold": {
+        "name": "Température de fermeture"
+      }
+    },
     "time": {
-      "telework_start": {"name": "Début du télétravail"},
-      "telework_end": {"name": "Fin du télétravail"}
+      "telework_start": {
+        "name": "Début du télétravail"
+      },
+      "telework_end": {
+        "name": "Fin du télétravail"
+      }
     },
     "binary_sensor": {
-      "sun_on_window": {"name": "Soleil direct"},
-      "automation_active": {"name": "Automatisation active"},
-      "shading_required": {"name": "Ombrage nécessaire"}
+      "sun_on_window": {
+        "name": "Soleil direct"
+      },
+      "automation_active": {
+        "name": "Automatisation active"
+      },
+      "shading_required": {
+        "name": "Ombrage nécessaire"
+      }
     }
   }
 }

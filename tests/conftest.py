@@ -23,6 +23,8 @@ def integration(monkeypatch):
             "DOMAIN": "cover",
             "SERVICE_CLOSE_COVER": "close_cover",
             "SERVICE_OPEN_COVER": "open_cover",
+            "SERVICE_SET_COVER_POSITION": "set_cover_position",
+            "CoverEntityFeature": SimpleNamespace(SET_POSITION=4),
         },
         "homeassistant.config_entries": {"ConfigEntry": MagicMock()},
         "homeassistant.const": {
