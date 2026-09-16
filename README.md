@@ -16,7 +16,8 @@ la configuration se fait dans l’interface Home Assistant, sans YAML.
   répétés autour de la consigne ;
 - fonctionnement permanent ou uniquement lorsque personne n’est à la maison ;
 - mode télétravail qui autorise l’automatisation pendant une plage horaire,
-  même si la maison est occupée ;
+  même si la maison est occupée, et se désactive automatiquement à l’heure
+  de fin ;
 - fermeture au crépuscule et ouverture à l’aube en cas d’absence ;
 - plages d’azimut traversant le nord, par exemple 300° → 40° ;
 - conversion automatique d’un thermomètre exprimé en °F vers °C ;
@@ -67,12 +68,16 @@ immédiatement à toutes les fenêtres.
 Le mode télétravail est un **complément au mode absence** : si « uniquement en
 cas d’absence » est actif, le volet peut quand même être piloté lorsque le mode
 télétravail est actif et que l’heure courante se trouve dans sa plage.
+À l’heure de fin configurée, l’interrupteur télétravail repasse sur désactivé
+pour toutes les fenêtres. Il faut le réactiver pour une prochaine journée.
 
 ## Comportement de sécurité
 
 - Sans entité de présence valide, le logement est considéré occupé.
-- Si le thermomètre est indisponible, aucune fermeture liée à la chaleur n’est
-  lancée. La fermeture nocturne reste indépendante.
+- Si le thermomètre est absent, indisponible ou fournit une valeur invalide,
+  la température est considérée comme supérieure au seuil (24 °C par défaut).
+  La protection solaire reste donc active selon le soleil et la présence.
+  Dès qu’une mesure valide revient, elle est de nouveau utilisée.
 - Désactiver l’automatisation rouvre un volet uniquement si Solar Shutters
   l’avait fermé.
 - Un volet fermé au crépuscule reste fermé si un occupant rentre pendant la

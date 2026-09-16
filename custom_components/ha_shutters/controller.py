@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from datetime import datetime, time, timedelta
 from typing import Any
@@ -275,8 +276,10 @@ class ShutterController:
         self.shading_required = bool(
             self.automation_active
             and self.sun_on_window
-            and self.temperature_celsius is not None
-            and self.temperature_celsius >= effective_threshold
+            and (
+                self.temperature_celsius is None
+                or self.temperature_celsius >= effective_threshold
+            )
         )
 
         sun_below_horizon = sun_state.state == "below_horizon"
@@ -363,6 +366,8 @@ class ShutterController:
         try:
             value = float(state.state)
         except (TypeError, ValueError):
+            return None
+        if not math.isfinite(value):
             return None
         unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
         if not unit or unit == UnitOfTemperature.CELSIUS:
