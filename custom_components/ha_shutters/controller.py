@@ -83,6 +83,7 @@ SUN_ENTITY_ID = "sun.sun"
 POSITION_TOLERANCE = 3
 SOLAR_COMMAND_INTERVAL = timedelta(minutes=30)
 TARGET_STABILITY = timedelta(minutes=5)
+STOP_CONFIRMATION = timedelta(seconds=15)
 
 
 class ShutterController:
@@ -119,6 +120,7 @@ class ShutterController:
         self._no_sun_since: datetime | None = None
         self._expected_position: int | None = None
         self._command_start_position: float | None = None
+        self._pending_stop_since: datetime | None = None
         self._progressive_active = False
         self.calculated_target: float | None = None
         self.effective_threshold: float | None = None
@@ -231,6 +233,7 @@ class ShutterController:
             self._last_attempt_target = None
             self._thermal_active = False
             self._expected_position = None
+            self._pending_stop_since = None
             self._ignore_cover_changes_until = None
         self._candidate = None
         self._candidate_since = None
@@ -279,10 +282,7 @@ class ShutterController:
             if self._is_expected_position_change(new_state, old_state):
                 return
             if self.last_desired_closed or self.managed_closed:
-                self.manual_override = True
-                self.managed_closed = False
-                self._expected_position = None
-                self._candidate = None
+                self._mark_manual_override()
                 self.hass.async_create_task(self._async_save_state())
             return
         if (
@@ -475,6 +475,7 @@ class ShutterController:
         if position is not None and abs(position - target) <= POSITION_TOLERANCE:
             # Keep accepting final position reports until the command window
             # expires: some devices publish OPEN at 52, then 51, then 50%.
+            self._pending_stop_since = None
             return True
         start = self._command_start_position
         if start is None:
@@ -492,14 +493,46 @@ class ShutterController:
             )
         )
         if state.state == direction and moving_towards:
+            self._pending_stop_since = None
             return True
-        # Some integrations report OPEN throughout a partial movement.
-        return bool(
-            state.state == STATE_OPEN
-            and position is not None
-            and moving_towards
-            and abs(position - target) < abs(old_position - target)
-        )
+        # Schneider reports OPEN with the previous position between updates.
+        # Give the next movement report time to arrive before treating it as STOP.
+        if state.state == STATE_OPEN and position is not None and moving_towards:
+            if abs(position - target) < abs(old_position - target):
+                self._pending_stop_since = None
+            elif self._pending_stop_since is None:
+                self._pending_stop_since = dt_util.utcnow()
+            return True
+        return False
+
+    def _mark_manual_override(self) -> None:
+        """Relinquish ownership after a confirmed unexpected movement or stop."""
+        self.manual_override = True
+        self.managed_closed = False
+        self._expected_position = None
+        self._pending_stop_since = None
+        self._candidate = None
+        self._candidate_since = None
+
+    def _stop_confirmation_pending(self, cover: State, now: datetime) -> bool:
+        """Confirm a stationary off-target cover, even without further events."""
+        if self._pending_stop_since is None:
+            return False
+        position = self._cover_position(cover)
+        if (
+            self._expected_position is None
+            or cover.state in {STATE_OPENING, STATE_CLOSING}
+            or (
+                position is not None
+                and abs(position - self._expected_position) <= POSITION_TOLERANCE
+            )
+        ):
+            self._pending_stop_since = None
+            return False
+        if position is None or now - self._pending_stop_since < STOP_CONFIRMATION:
+            return True
+        self._mark_manual_override()
+        return False
 
     async def _async_evaluate_progressive(
         self, sun: State | None, cover: State, away: bool
@@ -507,6 +540,9 @@ class ShutterController:
         settings = self.settings
         now = dt_util.utcnow()
         self.wait_reason = None
+        if self._stop_confirmation_pending(cover, now):
+            self.wait_reason = "moving"
+            return
         self.calculated_target = None
         self.temperature_celsius = self._temperature_in_celsius(
             self.hass.states.get(settings[CONF_TEMPERATURE_ENTITY])
@@ -612,6 +648,9 @@ class ShutterController:
             self.night_closed = False
         if cycle_active:
             self.last_desired_closed = True
+            if self.manual_override:
+                self.wait_reason = "manual_override"
+                return
         if not urgent:
             if self._candidate != target:
                 self._candidate = target
@@ -669,6 +708,7 @@ class ShutterController:
         self._last_attempt_target = target
         self._expected_position = target
         self._command_start_position = position
+        self._pending_stop_since = None
         # Retain the retry interval even if Home Assistant stops during the call.
         await self._async_save_state()
         if await self._async_call_cover(SERVICE_SET_COVER_POSITION, position=target):
@@ -678,6 +718,7 @@ class ShutterController:
                 self.night_closed = True
         else:
             self._expected_position = None
+            self._pending_stop_since = None
             self.wait_reason = "command_failed"
 
     async def _async_call_cover(

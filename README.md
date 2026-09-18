@@ -142,6 +142,13 @@ solaires sont indisponibles, la position est conservée plutôt que d’interpr�
 la panne comme une absence de soleil. Le délai entre commandes et la prise en
 charge sont restaurés après redémarrage ; la confirmation de 5 minutes recommence.
 
+Pendant un déplacement automatique, certains volets Schneider signalent brièvement
+« ouvert » entre deux mises à jour de position. Ces retours ne sont pas considérés
+immédiatement comme un arrêt manuel : le contrôleur attend au moins 15 secondes,
+puis vérifie à la prochaine évaluation si le volet reste arrêté hors cible. Une
+reprise du mouvement ou l’arrivée à la cible annule cette attente. Une inversion
+du mouvement reste détectée immédiatement.
+
 Le diagnostic **Demande de protection solaire** expose aussi les attributs
 `calculated_position`, `last_commanded_position`, `effective_temperature_threshold`,
 `outdoor_temperature_celsius` et `wait_reason`. Les principaux motifs d’attente

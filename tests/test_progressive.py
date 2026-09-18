@@ -462,6 +462,128 @@ def test_final_position_reports_within_tolerance_are_not_manual(rig):
     run(scenario())
 
 
+def test_schneider_reports_preserve_ownership_and_allow_reopening(rig):
+    """Replay the alternating OPEN/CLOSING reports from the user's device."""
+
+    async def scenario():
+        rig.states["sensor.indoor"].state = "28"
+        await rig.evaluate(0)
+        await rig.evaluate(5)
+        assert rig.commands == [0]
+        reports = [
+            (6, "open", 100),
+            (6.03, "closing", 78),
+            (11, "open", 78),
+            (11.03, "closing", 59),
+            (16, "open", 59),
+            (16.03, "closing", 41),
+            (21, "open", 41),
+            (21.03, "closing", 22),
+            (26, "open", 22),
+            (26.03, "closing", 4),
+            (31, "open", 4),
+            (31.03, "closed", 0),
+        ]
+        for second, status, position in reports:
+            rig.clock(5 + second / 60)
+            old = rig.states["cover.window"]
+            new = state(status, current_position=position, supported_features=4)
+            rig.states["cover.window"] = new
+            rig.controller._handle_cover_state_change(new, old)
+            await rig.controller.async_evaluate("device_report")
+            assert not rig.controller.manual_override
+            assert rig.controller.managed_closed
+        assert rig.commands == [0]
+        rig.states["sun.sun"].attributes["azimuth"] = 280
+        await rig.evaluate(6)
+        await rig.evaluate(11)
+        assert rig.commands == [0, 100]
+
+    run(scenario())
+
+
+@pytest.mark.parametrize(
+    "start,depth,intermediate,target", [(100, 1, 80, 50), (20, 1.6, 50, 80)]
+)
+def test_transient_open_is_accepted_for_both_directions(
+    rig, start, depth, intermediate, target
+):
+    async def scenario():
+        rig.states["cover.window"].attributes["current_position"] = start
+        rig.entry.data["sun_depth"] = depth
+        await rig.evaluate(0)
+        await rig.evaluate(5)
+        assert rig.commands == [target]
+        direction = "closing" if target < start else "opening"
+        for second, status, position in [
+            (1, direction, intermediate),
+            (6, "open", intermediate),
+            (6.03, direction, target),
+            (7, "open", target),
+        ]:
+            rig.clock(5 + second / 60)
+            old = rig.states["cover.window"]
+            new = state(status, current_position=position, supported_features=4)
+            rig.states["cover.window"] = new
+            rig.controller._handle_cover_state_change(new, old)
+            await rig.controller.async_evaluate("device_report")
+        await rig.evaluate(10)
+        assert not rig.controller.manual_override
+        assert rig.controller.managed_closed
+        assert rig.commands == [target]
+
+    run(scenario())
+
+
+def test_real_stop_is_confirmed_without_another_device_event(rig):
+    async def scenario():
+        rig.states["sensor.indoor"].state = "28"
+        await rig.evaluate(0)
+        await rig.evaluate(5)
+        for second, status in [(5, "closing"), (6, "open")]:
+            rig.clock(5 + second / 60)
+            old = rig.states["cover.window"]
+            new = state(status, current_position=22, supported_features=4)
+            rig.states["cover.window"] = new
+            rig.controller._handle_cover_state_change(new, old)
+        await rig.evaluate(5 + 20 / 60)
+        assert not rig.controller.manual_override
+        assert rig.controller.wait_reason == "moving"
+        await rig.evaluate(6)
+        assert rig.controller.manual_override
+        assert not rig.controller.managed_closed
+        assert rig.controller.wait_reason == "manual_override"
+        assert rig.controller._store.async_save.call_args.args[0]["manual_override"]
+        rig.states["sun.sun"].attributes["azimuth"] = 280
+        await rig.evaluate(7)
+        await rig.evaluate(12)
+        assert rig.commands == [0]  # Leave the manually stopped cover untouched.
+
+    run(scenario())
+
+
+def test_reversal_during_stop_confirmation_is_immediately_manual(rig):
+    async def scenario():
+        await rig.evaluate(0)
+        await rig.evaluate(5)
+        for second, status, position in [
+            (1, "closing", 80),
+            (6, "open", 80),
+            (7, "opening", 85),
+        ]:
+            rig.clock(5 + second / 60)
+            old = rig.states["cover.window"]
+            new = state(status, current_position=position, supported_features=4)
+            rig.states["cover.window"] = new
+            rig.controller._handle_cover_state_change(new, old)
+        assert rig.controller.manual_override
+        assert not rig.controller.managed_closed
+        await rig.evaluate(6)
+        assert rig.controller.wait_reason == "manual_override"
+
+    run(scenario())
+
+
 def test_restart_restores_ownership_interval_and_reconfirms_target(rig):
     async def scenario():
         await rig.start()
