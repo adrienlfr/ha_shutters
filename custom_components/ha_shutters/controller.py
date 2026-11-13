@@ -105,6 +105,7 @@ class ShutterController:
         self._store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self.managed_closed = False
         self.night_closed = False
+        self.dawn_hold = False
         self.manual_override = False
         self.last_desired_closed = False
         self._ignore_cover_changes_until: datetime | None = None
@@ -151,6 +152,7 @@ class ShutterController:
         stored = await self._store.async_load() or {}
         self.managed_closed = bool(stored.get("managed_closed", False))
         self.night_closed = bool(stored.get("night_closed", False))
+        self.dawn_hold = bool(stored.get("dawn_hold", False))
         self.manual_override = bool(stored.get("manual_override", False))
         self.last_desired_closed = bool(stored.get("last_desired_closed", False))
         target = finite_float(stored.get("last_position_target"))
@@ -226,6 +228,7 @@ class ShutterController:
             self._tracked_cover_entity = new_cover_entity
             self.managed_closed = False
             self.night_closed = False
+            self.dawn_hold = False
             self.manual_override = False
             self.last_desired_closed = False
             self.last_position_target = None
@@ -278,6 +281,26 @@ class ShutterController:
                 "current_position"
             ) == new_state.attributes.get("current_position"):
                 return
+        position = self._cover_position(new_state)
+        old_position = self._cover_position(old_state)
+        if self.dawn_hold and (
+            (
+                position is not None
+                and position >= 100
+                and old_position is not None
+                and old_position < position
+            )
+            or (
+                position is None
+                and old_state is not None
+                and old_state.state in {STATE_CLOSED, STATE_OPENING}
+                and new_state.state == STATE_OPEN
+            )
+        ):
+            self.dawn_hold = False
+            self.night_closed = False
+            self.managed_closed = False
+            self.hass.async_create_task(self._async_save_state())
         if self._progressive_active:
             if self._is_expected_position_change(new_state, old_state):
                 return
@@ -291,7 +314,7 @@ class ShutterController:
             and new_state.state in self._expected_cover_states
         ):
             return
-        if self.last_desired_closed:
+        if self.last_desired_closed or (self.dawn_hold and self.managed_closed):
             self.manual_override = True
             self.managed_closed = False
             self.hass.async_create_task(self._async_save_state())
@@ -329,6 +352,20 @@ class ShutterController:
 
         someone_home = self._someone_is_home()
         away = not someone_home
+        position = self._cover_position(cover_state)
+        # Hold a nighttime closure across dawn and future evaluations at home.
+        # A stored night_closed also covers startup after the sun has risen.
+        if away:
+            self.dawn_hold = False
+        elif self.night_closed or (
+            sun_state is not None
+            and sun_state.state == "below_horizon"
+            and (
+                cover_state.state == STATE_CLOSED
+                or (position is not None and position < 100)
+            )
+        ):
+            self.dawn_hold = True
         local_now = dt_util.as_local(dt_util.utcnow())
         telework_active = time_is_in_range(
             local_now.time(),
@@ -410,7 +447,7 @@ class ShutterController:
             if cover_state.state not in {STATE_CLOSED, STATE_CLOSING}:
                 if await self._async_call_cover(SERVICE_CLOSE_COVER):
                     self.managed_closed = True
-        elif not desired_closed and self.managed_closed:
+        elif not desired_closed and self.managed_closed and not self.dawn_hold:
             is_opening = cover_state.state in {STATE_OPEN, STATE_OPENING}
             if is_opening or await self._async_call_cover(SERVICE_OPEN_COVER):
                 self.managed_closed = False
@@ -680,6 +717,13 @@ class ShutterController:
         if position is None:
             self.wait_reason = "position_unavailable"
             return
+        if target > position and self.dawn_hold:
+            self.wait_reason = "dawn_hold"
+            return
+        # Solar geometry must not raise a shutter we did not take ownership of.
+        if target > position and not self.managed_closed:
+            self.wait_reason = "not_managed"
+            return
         if (
             self._expected_position is not None
             and self._ignore_cover_changes_until is not None
@@ -808,6 +852,7 @@ class ShutterController:
         return {
             "managed_closed": self.managed_closed,
             "night_closed": self.night_closed,
+            "dawn_hold": self.dawn_hold,
             "manual_override": self.manual_override,
             "last_desired_closed": self.last_desired_closed,
             "last_position_target": self.last_position_target,

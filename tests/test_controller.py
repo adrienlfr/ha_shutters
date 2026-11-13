@@ -29,7 +29,7 @@ def test_temperature_controls_shading(integration, reading, expected):
         "sun.sun": SimpleNamespace(
             state="above_horizon", attributes={"azimuth": 135, "elevation": 45}
         ),
-        "cover.window": SimpleNamespace(state="open"),
+        "cover.window": SimpleNamespace(state="open", attributes={}),
         "sensor.temperature": (
             None if reading is None else SimpleNamespace(state=reading, attributes={})
         ),
