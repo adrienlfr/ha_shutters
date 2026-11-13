@@ -208,7 +208,7 @@ def test_authorization_end_releases_immediately(rig, change):
     run(scenario())
 
 
-def test_night_priority_and_dawn_release(rig):
+def test_night_priority_and_dawn_release_when_away(rig):
     async def scenario():
         await rig.start()
         rig.manager.settings["dawn_dusk_away"] = True
@@ -219,9 +219,232 @@ def test_night_priority_and_dawn_release(rig):
         rig.states["person.owner"].state = "home"
         await rig.evaluate(10)
         assert rig.commands == [50, 0]
+        rig.states["person.owner"].state = "not_home"
         rig.states["sun.sun"] = state("above_horizon", azimuth=80, elevation=5)
         await rig.evaluate(11)
+        await rig.evaluate(16)
         assert rig.commands == [50, 0, 100]
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("progressive", [False, True])
+def test_night_closure_stays_closed_after_return_at_dawn(rig, progressive):
+    async def scenario():
+        rig.entry.data["progressive_enabled"] = progressive
+        rig.manager.settings["dawn_dusk_away"] = True
+        rig.states["sun.sun"] = state("below_horizon", azimuth=280, elevation=-5)
+        await rig.evaluate(0)
+        cover = rig.states["cover.window"]
+        cover.state = "closed"
+        cover.attributes["current_position"] = 0
+        rig.states["person.owner"].state = "home"
+        await rig.evaluate(5)
+        rig.states["sun.sun"] = state("above_horizon", azimuth=80, elevation=5)
+        await rig.evaluate(6)
+        await rig.evaluate(12)
+        services = [
+            call.args[1] for call in rig.hass.services.async_call.await_args_list
+        ]
+        assert services == (["set_cover_position"] if progressive else ["close_cover"])
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_no_progressive_opening_of_night_shutter_with_solar_demand(rig, manual):
+    async def scenario():
+        rig.manager.settings.update(dawn_dusk_away=True, only_away=False)
+        rig.states["sun.sun"] = state("below_horizon", azimuth=280, elevation=-5)
+        if manual:
+            rig.states["person.owner"].state = "home"
+            rig.states["cover.window"] = state(
+                "closed", current_position=0, supported_features=4
+            )
+        await rig.evaluate(0)
+        if not manual:
+            rig.settle()
+            rig.states["person.owner"].state = "home"
+            await rig.evaluate(5)
+        rig.states["sun.sun"] = state("above_horizon", azimuth=180, elevation=45)
+        await rig.evaluate(6)
+        await rig.evaluate(11)
+        await rig.evaluate(40)
+        assert rig.commands == ([] if manual else [0])
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("progressive", [False, True])
+@pytest.mark.parametrize("presence", ["home", "unknown", "unavailable"])
+def test_stored_night_closure_stays_closed_at_startup(rig, progressive, presence):
+    async def scenario():
+        rig.entry.data["progressive_enabled"] = progressive
+        rig.states["person.owner"].state = presence
+        rig.states["sun.sun"] = state("above_horizon", azimuth=80, elevation=5)
+        rig.states["cover.window"] = state(
+            "closed", current_position=0, supported_features=4
+        )
+        rig.controller._store.async_load.return_value = {
+            "managed_closed": True,
+            "night_closed": True,
+        }
+        await rig.controller.async_setup()
+        await rig.evaluate(10)
+        assert rig.hass.services.async_call.await_count == 0
+        assert rig.controller.dawn_hold
+
+    run(scenario())
+
+
+def test_manual_open_releases_dawn_hold(rig):
+    async def scenario():
+        rig.manager.settings.update(dawn_dusk_away=True, only_away=False)
+        rig.states["person.owner"].state = "home"
+        rig.states["sun.sun"] = state("below_horizon", azimuth=280, elevation=-5)
+        rig.states["cover.window"] = state(
+            "closed", current_position=0, supported_features=4
+        )
+        await rig.evaluate(0)
+        rig.states["sun.sun"] = state("above_horizon", azimuth=80, elevation=5)
+        await rig.evaluate(6)
+        old = rig.states["cover.window"]
+        new = state("open", current_position=100, supported_features=4)
+        rig.states["cover.window"] = new
+        rig.controller._handle_cover_state_change(new, old)
+        await rig.evaluate(7)
+        assert not rig.controller.dawn_hold
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("progressive", [False, True])
+def test_manual_partial_open_during_dawn_hold_relinquishes_ownership(rig, progressive):
+    async def scenario():
+        rig.entry.data["progressive_enabled"] = progressive
+        rig.manager.settings["dawn_dusk_away"] = True
+        rig.states["sun.sun"] = state("below_horizon", azimuth=280, elevation=-5)
+        await rig.evaluate(0)
+        cover = rig.states["cover.window"]
+        cover.state = "closed"
+        cover.attributes["current_position"] = 0
+        rig.states["person.owner"].state = "home"
+        await rig.evaluate(5)
+        rig.states["sun.sun"] = state("above_horizon", azimuth=80, elevation=5)
+        await rig.evaluate(6)
+        old = cover
+        new = state("open", current_position=40, supported_features=4)
+        rig.states["cover.window"] = new
+        rig.clock(10)
+        rig.controller._handle_cover_state_change(new, old)
+        assert not rig.controller.managed_closed
+
+    run(scenario())
+
+
+def test_binary_opening_without_position_does_not_release_hold_until_open(rig):
+    async def scenario():
+        rig.entry.data["progressive_enabled"] = False
+        rig.states["person.owner"].state = "home"
+        rig.states["sun.sun"] = state("below_horizon", azimuth=280, elevation=-5)
+        old = state("closed")
+        rig.states["cover.window"] = old
+        await rig.evaluate(0)
+        rig.states["sun.sun"] = state("above_horizon", azimuth=80, elevation=5)
+        await rig.evaluate(5)
+        opening = state("opening")
+        rig.controller._handle_cover_state_change(opening, old)
+        assert rig.controller.dawn_hold
+        opened = state("open")
+        rig.controller._handle_cover_state_change(opened, opening)
+        assert not rig.controller.dawn_hold
+
+    run(scenario())
+
+
+def test_unmanaged_closed_shutter_is_not_opened_for_solar_target(rig):
+    async def scenario():
+        rig.manager.settings["only_away"] = False
+        rig.states["person.owner"].state = "home"
+        rig.states["cover.window"] = state(
+            "closed", current_position=0, supported_features=4
+        )
+        await rig.evaluate(0)
+        await rig.evaluate(5)
+        assert rig.commands == []
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("progressive", [False, True])
+@pytest.mark.parametrize(
+    "sun,temperature,closes",
+    [
+        (state("above_horizon", azimuth=280, elevation=45), "28", False),
+        (state("above_horizon", azimuth=180, elevation=45), "20", False),
+        (state("above_horizon", azimuth=180, elevation=45), "28", True),
+        (state("above_horizon", azimuth=180, elevation=45), "unavailable", True),
+        (state("below_horizon", azimuth=280, elevation=-5), "20", True),
+    ],
+)
+def test_departure_remains_conditional(rig, progressive, sun, temperature, closes):
+    async def scenario():
+        rig.entry.data["progressive_enabled"] = progressive
+        rig.manager.settings.update(dawn_dusk_away=True, only_away=True)
+        rig.states["sun.sun"] = sun
+        rig.states["sensor.indoor"].state = temperature
+        rig.states["person.owner"].state = "home"
+        await rig.evaluate(0)
+        assert rig.hass.services.async_call.await_count == 0
+        rig.states["person.owner"].state = "not_home"
+        await rig.evaluate(1)
+        await rig.evaluate(6)
+        assert bool(rig.hass.services.async_call.await_count) is closes
+
+    run(scenario())
+
+
+def test_solar_can_close_further_but_not_reopen_night_shutter_at_home(rig):
+    async def scenario():
+        rig.manager.settings["only_away"] = False
+        rig.states["person.owner"].state = "home"
+        rig.states["cover.window"] = state(
+            "open", current_position=70, supported_features=4
+        )
+        rig.states["sun.sun"] = state("below_horizon", azimuth=280, elevation=-5)
+        await rig.evaluate(0)
+        rig.states["sun.sun"] = state("above_horizon", azimuth=180, elevation=45)
+        await rig.evaluate(1)
+        await rig.evaluate(6)
+        assert rig.commands == [50]
+        rig.settle()
+        rig.states["sun.sun"].attributes["azimuth"] = 280
+        await rig.evaluate(7)
+        await rig.evaluate(12)
+        await rig.evaluate(60)
+        assert rig.commands == [50]
+
+    run(scenario())
+
+
+def test_dawn_hold_survives_restart(rig):
+    async def scenario():
+        rig.manager.settings["dawn_dusk_away"] = True
+        rig.states["sun.sun"] = state("below_horizon", azimuth=280, elevation=-5)
+        await rig.evaluate(0)
+        rig.settle()
+        rig.states["person.owner"].state = "home"
+        await rig.evaluate(5)
+        rig.states["sun.sun"] = state("above_horizon", azimuth=80, elevation=5)
+        await rig.evaluate(6)
+        saved = rig.controller._store.async_save.call_args.args[0]
+        replacement = rig.module.ShutterController(rig.hass, rig.entry, rig.manager)
+        replacement._store.async_load.return_value = saved
+        rig.controller = replacement
+        await replacement.async_setup()
+        await rig.evaluate(20)
+        assert replacement.dawn_hold
+        assert rig.commands == [0]
 
     run(scenario())
 
@@ -510,6 +733,7 @@ def test_transient_open_is_accepted_for_both_directions(
 ):
     async def scenario():
         rig.states["cover.window"].attributes["current_position"] = start
+        rig.controller.managed_closed = start < 100
         rig.entry.data["sun_depth"] = depth
         await rig.evaluate(0)
         await rig.evaluate(5)

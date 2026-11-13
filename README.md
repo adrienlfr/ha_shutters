@@ -155,7 +155,7 @@ Le diagnostic **Demande de protection solaire** expose aussi les attributs
 sont `target_confirmation` (5 minutes de stabilité), `command_interval`
 (30 minutes entre commandes), `no_sun_confirmation`, `manual_override`, `moving`,
 `at_target`, `not_managed`, `sun_unavailable`, `cover_unavailable`,
-`position_unavailable`, `command_failed` et `binary_fallback`.
+`position_unavailable`, `command_failed`, `dawn_hold` et `binary_fallback`.
 
 Commencez par une seule fenêtre et vérifiez physiquement que 50 % correspond
 approximativement à une demi-hauteur ouverte avant d’activer les autres.
@@ -167,10 +167,21 @@ approximativement à une demi-hauteur ouverte avant d’activer les autres.
   la température est considérée comme supérieure au seuil (24 °C par défaut).
   La protection solaire reste donc active selon le soleil et la présence.
   Dès qu’une mesure valide revient, elle est de nouveau utilisée.
-- Désactiver l’automatisation rouvre un volet uniquement si Solar Shutters
-  l’avait fermé.
-- Un volet fermé au crépuscule reste fermé si un occupant rentre pendant la
-  nuit ; il est restauré à l’aube (sauf si la protection solaire le réclame).
+- Désactiver l’automatisation ne rouvre que les volets pris en charge, sous
+  réserve du maintien fermé en présence décrit ci-dessous.
+- Un volet fermé pendant la nuit reste fermé à l’aube en présence, y compris
+  après un retour nocturne ou une fermeture manuelle. Le maintien persiste lors
+  des recalculs et des redémarrages, jusqu’au départ ou à une ouverture manuelle
+  complète ; la protection solaire peut toujours fermer davantage si nécessaire.
+  Pour un volet sans position, l’état « ouvert » est considéré comme une ouverture
+  complète, faute d’information plus précise.
+- En mode progressif, un volet non pris en charge n’est pas ouvert pour atteindre
+  une cible solaire : seule une fermeture supplémentaire peut être commandée.
+- En absence à l’aube, un volet fermé par l’intégration peut être restauré si la
+  protection solaire ne demande pas de le garder fermé.
+- Un départ n’entraîne pas une fermeture systématique : elle dépend des réglages,
+  de l’heure, du soleil et de la température ; la fermeture nocturne est distincte
+  de la protection solaire.
 - À l’aube, un volet peut rester fermé si les conditions d’ensoleillement et de
   température demandent déjà de l’ombre.
 
